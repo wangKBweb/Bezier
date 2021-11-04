@@ -48,11 +48,29 @@ export default {
       controlY2: null,
       endX: null,
       endY: null,
-      ongoing2: false,
+      ongoing2: false, 
       nodeList: [],
       lineList: [],
       // 是否在原点
-      originStatus: false
+      originStatus: false,
+      // 节点拖拽状态
+      pointDownStatus: false,
+      // 拖拽线的id
+      dragLineId: 0,
+      // 拖拽线集合
+      dragLineList: [],
+      // 拖拽点集合
+      dragPointList: [],
+      // 选中图形块
+      selectObject: null,
+      // 创建后缓存的图形块
+      cacheLine: [],
+      // 缓存的物件边框信息
+      cacheBorder: [],
+      // 缓存的点的集合
+      cachePoint: [],
+      // 线段检测点集合
+      detectionArr: []
     }
   },
   mounted() {
@@ -71,7 +89,7 @@ export default {
       }
       if(value == 0) {
         this.canvasModel.on({
-          'mousedblclick': this.onObjectDblclick
+          // 'mousedblclick': this.onObjectDblclick
         });
       } else if (value == 1) {
         this.canvasModel.on({
@@ -96,6 +114,35 @@ export default {
           'mouse:up': this.onObjectUp,
           'mouse:out': this.onObjectOut,
           'mouse:over': this.onObjectOver
+        });
+        this.cacheLine.forEach(item => {
+          let width = item.width / 2
+          let height = item.height / 2
+          let L = item.left - width
+          let T = item.top - height
+          let R = item.left + width
+          let B = item.top + height
+          this.cacheBorder.push([L, T, R, B])
+          let t = 100
+          let pointList = []
+          let path = item.path
+          item.path.forEach((val, index) => {
+            if(index !== 0) {
+              const p1 = [path[index-1][path[index-1].length - 2], path[index-1][path[index-1].length - 1]]
+              const p2 = [val[1], val[2]]
+              const p3 = [val[3], val[4]]
+              const p4 = [val[5], val[6]]
+              for(let i = 0;i <= t;i++) {
+                pointList.push(this.threeBezier(i / t, p1, p2, p3, p4))
+              }
+            }
+          })
+          this.cachePoint.push(pointList)
+          console.log(this.cachePoint)
+        })
+      } else if (value == 4) {
+        this.canvasModel.on({
+          // 'mouse:move': this.onObjectMoveLine,
         });
       }
     }
@@ -264,8 +311,48 @@ export default {
       // this.followPoint.setCoords();
     },
     onObjectMoveDetect(e) {
-      console.log(e);
-      console.log(this.canvasModel)
+      this.x = e.pointer.x
+      this.y = e.pointer.y
+      this.followPoint.set({
+        left: e.pointer.x,
+        top: e.pointer.y
+      });
+      if(this.lineStatus) {
+        this.followLine.set({
+          x1: e.pointer.x,
+          y1: e.pointer.y
+        })
+      }
+      this.canvasModel.renderAll()
+      let detectionArr = []
+      this.cacheBorder.forEach((item, index) => {
+        let [L, T, R, B] = item
+        // console.log(e.pointer.x >= L && e.pointer.x <= R && e.pointer.y >= T && e.pointer.y <= B);
+        // console.log(L, T, R, B);
+        if(e.pointer.x >= L && e.pointer.x <= R && e.pointer.y >= T && e.pointer.y <= B) {
+          // console.log('我进来了');
+          detectionArr.push(this.cachePoint[index]) 
+        } else {
+          // console.log('我出去了');
+        }
+      })
+      // console.log(detectionArr, '我是检测');
+      this.detectionArr = detectionArr
+      this.detectionArr.forEach(item => {
+        item.forEach(val => {
+          const x = e.pointer.x - val[0]
+          const y = e.pointer.y - val[1]
+          // console.log(x, y);
+          if(x <= 6 && x >= -6 && y <= 6 && y >= -6) {
+            console.log(val[0], val[1]);
+            this.followPoint.set({
+              left: val[0],
+              top: val[1]
+            })
+          }
+        })
+        this.canvasModel.renderAll()
+      })
     },
     onObjectDown(e) {
       const p = this.makeCirclePoint(e.pointer.x, e.pointer.y)
@@ -295,7 +382,6 @@ export default {
           // this.id++
           // console.log(this.curve)
         } else {
-          console.log('true');
           this.downPoint = p
           // this.downPoint = this.deepClone(p)
           this.pointList.push(this.downPoint)
@@ -380,7 +466,6 @@ export default {
         })
       }
       if(this.ongoing) {
-        console.log(true);
         this.startX = val.path[1][5]
         this.startY = val.path[1][6]
         this.controlX = this.x
@@ -440,28 +525,267 @@ export default {
           fill: '',
           stroke: 'black'
         })
+        curve.on({
+          'mousedblclick': this.onObjectDblclick,
+          'mouseover': this.onObjectMoveOver,
+          'mouseout': this.onObjectMoveOut
+        })
+        this.cacheLine.push(curve)
         this.canvasModel.add(curve)
         this.dataInit()
       } else if(this.activeIndex == 2) {
         //
       }
     },
-    makeCirclePoint(left, top) {
+    onObjectMoveOver(e) {
+      console.log(e, '我进来了');
+    },
+    onObjectMoveOut(e) {
+      console.log(e, '我出去了');
+    },
+    // 三阶贝塞尔曲线计算
+    threeBezier(t, p1, p2, p3, p4) {
+      let [x1, y1] = p1
+      let [cx1, cy1] = p2
+      let [cx2, cy2] = p3
+      let [x2, y2] = p4
+      let x = x1 * (1 - t) * (1 - t) * (1 - t) +
+              3 * cx1 * t * (1 - t) * (1 - t) +
+              3 * cx2 * t * t * (1 - t) +
+              x2 * t * t * t;
+      let y = y1 * (1 - t) * (1 - t) * (1 - t) +
+              3 * cy1 * t * (1 - t) * (1 - t) +
+              3 * cy2 * t * t * (1 - t) +
+              y2 * t * t * t;
+              return [x, y]
+    },
+    makeCirclePoint(left, top, color, tree, dragLineId) {
       const c = new fabric.Circle({
         left,
         top,
         strokeWidth: 1,
         radius: 4,
         fill: '#fff',
-        stroke: '#666'
+        stroke: color || '#666',
+        tree,
+        dragLineId
+      })
+      c.on({
+        'mousemove': this.onPointMove,
+        'mousedown': this.onPointDown,
+        'mouseup': this.onPointUp
       })
       return c
+    },
+    onPointMove(e) {
+      if(this.pointDownStatus) {
+        console.log(e.target);
+        if(e.target.dragLineId % 4 == 0 || e.target.dragLineId == 0) {
+          this.pointMoveHandle(e)
+        } else {
+          this.dragLineList[e.target.dragLineId].set({
+            x1: e.target.left,
+            y1: e.target.top
+          })
+          this.controlMoveHandle(e)
+        }
+        // this.dragLineList[e.target.dragLineId].x1 = e.pointer.x
+        // this.dragLineList[e.target.dragLineId].y1 = e.pointer.y
+      }
+    },
+    pointMoveHandle(e) {
+      let treePath1 = e.target.tree[0]
+      let treePath2 = e.target.tree[1]
+      let treePath3
+      let treePath4
+      // let treePath5
+      // let treePath6
+      let x
+      let y
+      this.canvasModel.remove(this.selectObject)
+      this.selectObject.path[treePath1][treePath2] = e.target.left
+      this.selectObject.path[treePath1][Number(treePath2) + 1] = e.target.top
+      if(e.target.dragLineId == 0) {
+        treePath3 = this.dragPointList[e.target.dragLineId + 1].tree[0]
+        treePath4 = this.dragPointList[e.target.dragLineId + 1].tree[1]
+        x = this.dragLineList[e.target.dragLineId + 1].x2 - (e.target.left - this.dragLineList[e.target.dragLineId + 1].x2)
+        y = this.dragLineList[e.target.dragLineId + 1].y2 - (e.target.top - this.dragLineList[e.target.dragLineId + 1].y2)
+        this.dragLineList[e.target.dragLineId + 1].set({
+          x1: x,
+          y1: y
+        })
+        this.dragPointList[e.target.dragLineId + 1].set({
+          left: x,
+          top: y
+        })
+        this.selectObject.path[treePath3][treePath4] = x
+        this.selectObject.path[treePath3][Number(treePath4) + 1] = y
+      } else if(e.target.dragLineId == this.dragLineList.length) {
+        treePath3 = this.dragPointList[e.target.dragLineId - 1].tree[0]
+        treePath4 = this.dragPointList[e.target.dragLineId - 1].tree[1]
+        x = this.dragLineList[e.target.dragLineId - 1].x2 - (e.target.left - this.dragLineList[e.target.dragLineId - 1].x2)
+        y = this.dragLineList[e.target.dragLineId - 1].y2 - (e.target.top - this.dragLineList[e.target.dragLineId - 1].y2)
+        this.dragLineList[e.target.dragLineId - 1].set({
+          x1: x,
+          y1: y
+        })
+        this.dragPointList[e.target.dragLineId - 1].set({
+          left: x,
+          top: y
+        })
+        this.selectObject.path[treePath3][treePath4] = x
+        this.selectObject.path[treePath3][Number(treePath4) + 1] = y
+      } else {
+        treePath3 = this.dragPointList[e.target.dragLineId - 1].tree[0]
+        treePath4 = this.dragPointList[e.target.dragLineId - 1].tree[1]
+        // treePath5 = this.dragPointList[e.target.dragLineId + 1].tree[0]
+        // treePath6 = this.dragPointList[e.target.dragLineId + 1].tree[1]
+      }
+      const line = []
+      let arr = []
+      line.push(`M ${this.selectObject.path[0][1]} ${this.selectObject.path[0][2]} `)
+      const node = this.selectObject.path.slice(1)
+      node.forEach(item => {
+        item.forEach(val => {
+          arr.push(`${val} `)
+          // const str = `C ${item[1]} ${item[2]} ${item[3]} ${item[4]} ${item[5]} ${item[6]} `
+        })
+        const str = `${arr.join('')} `
+        arr = []
+        line.push(str)
+      })
+      // console.log(line.join(''))
+      this.selectObject = new fabric.Path(`${line.join('')}`)
+      this.selectObject.set({
+        fill: '',
+        stroke: 'black'
+      })
+      this.canvasModel.add(this.selectObject)
+    },
+    controlMoveHandle(e) {
+      let x
+      let y
+      let treePath1
+      let treePath2
+      let treePath3
+      let treePath4
+      if(e.target.dragLineId == 0) {
+        //
+      } else if(e.target.dragLineId % 2 == 1 && this.dragLineList[e.target.dragLineId + 1]) {
+        x = this.dragLineList[e.target.dragLineId + 1].x2 - (e.target.left - this.dragLineList[e.target.dragLineId + 1].x2)
+        y = this.dragLineList[e.target.dragLineId + 1].y2 - (e.target.top - this.dragLineList[e.target.dragLineId + 1].y2)
+        this.dragLineList[e.target.dragLineId + 1].set({
+          x1: x,
+          y1: y
+        })
+        this.dragPointList[e.target.dragLineId + 1].set({
+          left: x,
+          top: y
+        })
+        treePath3 = this.dragPointList[e.target.dragLineId + 1].tree[0]
+        treePath4 = this.dragPointList[e.target.dragLineId + 1].tree[1]
+      } else if(e.target.dragLineId % 2 == 0) {
+        x = this.dragLineList[e.target.dragLineId - 1].x2 - (e.target.left - this.dragLineList[e.target.dragLineId - 1].x2)
+        y = this.dragLineList[e.target.dragLineId - 1].y2 - (e.target.top - this.dragLineList[e.target.dragLineId - 1].y2)
+        this.dragLineList[e.target.dragLineId - 1].set({
+          x1: x,
+          y1: y
+        })
+        this.dragPointList[e.target.dragLineId - 1].set({
+          left: x,
+          top: y
+        })
+        treePath3 = this.dragPointList[e.target.dragLineId - 1].tree[0]
+        treePath4 = this.dragPointList[e.target.dragLineId - 1].tree[1]
+      }
+      treePath1 = e.target.tree[0]
+      treePath2 = e.target.tree[1]
+      this.canvasModel.remove(this.selectObject)
+      this.selectObject.path[treePath1][treePath2] = e.target.left
+      this.selectObject.path[treePath1][Number(treePath2) + 1] = e.target.top
+      this.selectObject.path[treePath3][treePath4] = x
+      this.selectObject.path[treePath3][Number(treePath4) + 1] = y
+      const line = []
+      let arr = []
+      line.push(`M ${this.selectObject.path[0][1]} ${this.selectObject.path[0][2]} `)
+      const node = this.selectObject.path.slice(1)
+      node.forEach(item => {
+        item.forEach(val => {
+          arr.push(`${val} `)
+          // const str = `C ${item[1]} ${item[2]} ${item[3]} ${item[4]} ${item[5]} ${item[6]} `
+        })
+        const str = `${arr.join('')} `
+        arr = []
+        line.push(str)
+      })
+      // console.log(line.join(''))
+      this.selectObject = new fabric.Path(`${line.join('')}`)
+      this.selectObject.set({
+        fill: '',
+        stroke: 'black'
+      })
+      this.canvasModel.add(this.selectObject)
+    },
+    onPointDown() {
+      this.pointDownStatus = true
+    },
+    onPointUp() {
+      this.pointDownStatus = false
     },
     onObjectOut() {
 
     },
     onObjectDblclick(e) {
-      console.log(e, '我是双击');
+      const startPoint = e.target.path[0].slice(1)
+      const controlPoint = e.target.path.slice(1)
+      this.selectObject = e.target
+      console.log(startPoint)
+      console.log(controlPoint);
+      this.canvasModel.add(this.makeCirclePoint(startPoint[0], startPoint[1], 'black', `01`,))
+      controlPoint.forEach((item, index) => {
+        this.controlCycle(item, index, startPoint, controlPoint)
+      })
+    },
+    controlCycle(item, index, startPoint, controlPoint) {
+      item.forEach((val, idx) => {
+        if(idx == 1) {
+          const point = this.makeCirclePoint(val, item[idx+1], 'red', `${index + 1}${idx}`, this.dragLineId)
+          this.dragPointList.push(point)
+          this.canvasModel.add(point)
+          if(index == 0) {
+            const line = new fabric.Line([val, item[idx+1], startPoint[0], startPoint[1]], {
+              stroke: 'black',
+              dragLineId: this.dragLineId
+            })
+            this.dragLineList.push(line)
+            this.canvasModel.add(line)
+            this.dragLineId++
+          } else {
+            const line = new fabric.Line([val, item[idx+1], controlPoint[index-1][5], controlPoint[index-1][6]], {
+              stroke: 'black',
+              dragLineId: this.dragLineId
+            })
+            this.dragLineList.push(line)
+            this.canvasModel.add(line)
+            this.dragLineId++
+          }
+        } else if(idx == 3) {
+          const point = this.makeCirclePoint(val, item[idx+1], 'red', `${index + 1}${idx}`, this.dragLineId)
+          this.dragPointList.push(point)
+          this.canvasModel.add(point)
+          const line = new fabric.Line([val, item[idx+1], item[5], item[6]], {
+            stroke: 'black',
+            dragLineId: this.dragLineId
+          })
+          this.dragLineList.push(line)
+          this.canvasModel.add(line)
+          this.dragLineId++
+        } else if(idx == 5) {
+          const point = this.makeCirclePoint(val, item[idx+1], 'black', `${index + 1}${idx}`, this.dragLineId)
+          this.dragPointList.push(point)
+          this.canvasModel.add(point)
+        }
+      })
     },
     onObjectOver(e) {
       if (e.target != null) {
